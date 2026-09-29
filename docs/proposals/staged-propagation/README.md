@@ -424,6 +424,23 @@ are responsible for preserving `Conditions` themselves; failures show
 up as `RolloutStatus.Conditions[ConditionsMet]=False` with
 `Reason=ConditionsMissing` after `Timeout` fires.
 
+### Status freshness
+
+`AggregatedStatusItem.Applied` / `Health` / conditions carry no
+template revision, so right after a template change they still
+describe the previous version. The gate therefore only evaluates a
+cluster once its reflected status is fresh:
+
+- `resourceTemplateGeneration >= RolloutStatus.ObservedGeneration`, and
+- `observedGeneration >= generation` (member controller caught up).
+
+Until then the cluster counts as not passed and the `MinSuccessTime`
+clock does not start. This is the same check the native Deployment /
+ReplicaSet aggregators already use; the four replica-based reflectors
+already emit these fields via `FederatedGeneration`. Custom
+interpreters that omit them are treated as never fresh and fail with
+`Reason=StaleStatus` after `Timeout`.
+
 ### Rollout reconciliation
 
 **No new controller.** The state machine lives as a `pkg/rollout/`
@@ -551,6 +568,9 @@ clusters stay on the previously known-good version via
   generation change.
 - `RequiredConditions` per-cluster evaluation with missing condition
   treated as `Unknown`.
+- Stale status — after a template change, old `Healthy` / condition
+  data with a lower `resourceTemplateGeneration` does not pass the
+  gate or start `MinSuccessTime`.
 - Reschedule handling — `spec.clusters` add / remove / reorder
   preserves the "no unverified promotion" invariant.
 - `shouldSuspendDispatching` union semantics.
